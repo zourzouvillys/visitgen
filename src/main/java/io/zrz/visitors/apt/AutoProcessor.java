@@ -25,6 +25,9 @@ import lombok.RequiredArgsConstructor;
 public class AutoProcessor extends AbstractProcessor {
 
   private final Map<String, Model> visitable = new HashMap<>();
+  private boolean done;
+
+  private static ModelState state = new ModelState();
 
   @RequiredArgsConstructor
   private class Model {
@@ -39,7 +42,10 @@ public class AutoProcessor extends AbstractProcessor {
 
   @Override
   public Set<String> getSupportedAnnotationTypes() {
-    return Sets.newHashSet(Visitable.class.getCanonicalName());
+    return Sets.newHashSet(Visitable.Base.class.getCanonicalName(),
+        Visitable.Type.class.getCanonicalName(),
+        Visitable.class.getCanonicalName(),
+        Visitable.Visitor.class.getCanonicalName());
   }
 
   @Override
@@ -70,17 +76,22 @@ public class AutoProcessor extends AbstractProcessor {
       }
     }
 
-    this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "ROUND: " + env.getRootElements().size());
+    this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "ROUND: " + state + " " + env.getRootElements().size() + " / " + env.processingOver());
 
-    if (env.processingOver()) {
+    state.round(env);
 
+    if (!this.visitable.isEmpty() && env.processingOver()) {
+
+      // this.done = true;
       this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "DONE: " + this.visitable.size());
 
-      final Builder b = new Builder(this.processingEnv.getFiler());
+      final Builder b = new Builder(this.processingEnv);
 
       this.visitable.forEach((k, v) -> {
-        this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "TYPE: " + k + ": " + v.types.stream().collect(Collectors.joining(", ")));
-        b.add(k, v.types);
+        if (!v.types.isEmpty()) {
+          this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "TYPE: " + k + ": " + v.types.stream().collect(Collectors.joining(", ")));
+          b.add(k, v.types);
+        }
       });
 
     }

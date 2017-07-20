@@ -43,7 +43,7 @@ public class VisitorSpec {
    * concrete instance.
    */
 
-  private final ClassName boundType;
+  private final TypeName boundType;
 
   @Singular
   private final List<VisitorImplementationGenerator> implementations;
@@ -135,7 +135,10 @@ public class VisitorSpec {
     if (this.getTypeParameters().size() <= 1) {
       return this.getBoundType();
     } else {
-      return ParameterizedTypeName.get(this.getBoundType(), this.getTypeParameters().subList(1, this.getTypeParameters().size()).toArray(new TypeName[0]));
+      return this.getBoundType();
+      // return ParameterizedTypeName.get(this.getBoundType(),
+      // this.getTypeParameters().subList(1,
+      // this.getTypeParameters().size()).toArray(new TypeName[0]));
     }
 
   }

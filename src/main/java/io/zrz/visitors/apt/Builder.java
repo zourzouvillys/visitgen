@@ -1,26 +1,31 @@
 package io.zrz.visitors.apt;
 
-import static io.zrz.visitors.VisitorGenerator.typeVarParam;
-
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
+import java.util.function.IntToLongFunction;
+import java.util.function.IntUnaryOperator;
+import java.util.function.ObjIntConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
-import javax.annotation.processing.Filer;
+import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Types;
 
 import com.google.common.collect.Lists;
 import com.squareup.javapoet.ClassName;
@@ -43,12 +48,12 @@ import lombok.SneakyThrows;
 
 public class Builder {
 
-  private final Filer filer;
-
   private final String packageName = "io.zrz.test";
 
-  public Builder(Filer filer) {
-    this.filer = filer;
+  private final ProcessingEnvironment env;
+
+  public Builder(ProcessingEnvironment processingEnv) {
+    this.env = processingEnv;
   }
 
   /**
@@ -59,13 +64,15 @@ public class Builder {
    */
 
   public VisitorSpec fromFunctionalInterface(Class<?> funcintf) {
-    return VisitorSpec.builder()
-        .name(ClassName.get(this.packageName, "MyNodeVisitors", funcintf.getSimpleName()))
-        .methodNamePrefix("test")
-        .typeParameter("T")
-        .methodParameter(typeVarParam("T", "t"))
-        .returnType(TypeName.BOOLEAN)
-        .build();
+    return this.fromFunctionalInterface(funcintf, -1, null);
+    // return VisitorSpec.builder()
+    // .name(ClassName.get(this.packageName, "MyNodeVisitors",
+    // funcintf.getSimpleName()))
+    // .methodNamePrefix("test")
+    // .typeParameter("T")
+    // .methodParameter(typeVarParam("T", "t"))
+    // .returnType(TypeName.BOOLEAN)
+    // .build();
   }
 
   /**
@@ -81,20 +88,20 @@ public class Builder {
 
     final Method method = GeneratorUtils.lookup(funcintf);
 
+    final TypeName returnType = TypeName.get(method.getGenericReturnType());
+
     final VisitorSpecBuilder vb = VisitorSpec.builder()
         .name(this.makeName(funcintf.getSimpleName()))
         .methodNamePrefix(method.getName())
-        .returnType(TypeName.get(method.getGenericReturnType()))
-        .boundType(ClassName.get(boundType));
+        .returnType(returnType);
 
-    // .typeParameter("T")
+    if (boundType != null) {
+      vb.boundType(ClassName.get(boundType));
+    }
 
     for (final Type t : method.getGenericParameterTypes()) {
 
       final TypeName tt = TypeName.get(t);
-
-      // System.err.println(t + " : " + t.getClass() + " / " + tt + " / " +
-      // tt.getClass());
 
       if (tt instanceof TypeVariableName) {
 
@@ -114,7 +121,15 @@ public class Builder {
 
     }
 
+    if (returnType instanceof TypeVariableName) {
+      vb.typeParameter((TypeVariableName) returnType);
+    }
+
     return vb.build();
+  }
+
+  public VisitorSpec fromFunctionalInterface(Class<?> funcintf, Class<?> boundType) {
+    return this.fromFunctionalInterface(funcintf, 0, boundType);
   }
 
   private ClassName makeName(String string) {
@@ -127,137 +142,45 @@ public class Builder {
     final ClassName klass = ClassName.bestGuess(base);
     final List<TypeName> children = types.stream().map(name -> ClassName.bestGuess(name)).collect(Collectors.toList());
 
+    final TypeElement tbase = this.env.getElementUtils().getTypeElement(base);
+
     final TypeSpec.Builder container = TypeSpec.classBuilder("MyNodeVisitors")
         .addModifiers(Modifier.PUBLIC);
 
-    final VisitorSpec[] specs = {
+    // env.getElementUtils().getBinaryName(elt)
 
-        this.fromFunctionalInterface(Predicate.class),
+    final Types tt = this.env.getTypeUtils();
+
+    final List<VisitorSpec> lspecs = Lists.newArrayList();
+
+    lspecs.addAll(ConfigExtractor.specs(tbase, this.env));
+
+    // for (final Class<?> v : ant.value()) {
+    // lspecs.add(this.fromFunctionalInterface(v));
+    // }
+
+    final VisitorSpec[] specs = lspecs.toArray(new VisitorSpec[0]);
+
+    final VisitorSpec[] aspecs = {
+
+        // this.fromFunctionalInterface(Predicate.class),
         this.fromFunctionalInterface(Predicate.class, 0, BooleanSupplier.class),
-
-        // VisitorSpec.builder()
-        // .name(ClassName.get(this.packageName, "MyNodeVisitors",
-        // "BiPredicate"))
-        // .methodNamePrefix("test")
-        // .methodParameter(typeVarParam("T", "t"))
-        // .methodParameter(typeVarParam("U", "u"))
-        // .typeParameter("T")
-        // .typeParameter("U")
-        // .returnType(TypeName.BOOLEAN)
-        // .build(),
-
-        this.fromFunctionalInterface(BiPredicate.class),
+        // this.fromFunctionalInterface(BiPredicate.class),
         this.fromFunctionalInterface(BiPredicate.class, 0, Predicate.class),
 
-        // VisitorSpec.builder()
-        // .name(this.makeName("BiPredicate"))
-        // .methodNamePrefix("test")
-        // .methodParameter(VisitorGenerator.param("value"))
-        // .methodParameter(typeVarParam("U", "u"))
-        // .typeParameter("T")
-        // .typeParameter("U")
-        // .returnType(TypeName.BOOLEAN)
-        // .boundType(ClassName.get(Predicate.class))
-        // .build(),
+        // this.fromFunctionalInterface(Consumer.class),
+        this.fromFunctionalInterface(Consumer.class, Runnable.class),
 
-        VisitorSpec.builder()
-            .name(this.makeName("Consumer"))
-            .methodNamePrefix("accept")
-            .methodParameter(VisitorGenerator.param("value"))
-            .typeParameter("T")
-            .boundType(ClassName.get(Runnable.class))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("BiConsumer"))
-            .methodNamePrefix("accept")
-            .methodParameter(VisitorGenerator.param("value"))
-            .methodParameter(typeVarParam("U", "u"))
-            .typeParameter("T")
-            .typeParameter("U")
-            .boundType(ClassName.get(Consumer.class))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("Supplier"))
-            .methodNamePrefix("get")
-            .returnType(TypeVariableName.get("T"))
-            .typeParameter("T")
-            // .implementations(Arrays.asList(impls))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("BooleanSupplier"))
-            .methodNamePrefix("get")
-            .methodNameSuffix("AsBoolean")
-            .returnType(TypeName.BOOLEAN)
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("IntSupplier"))
-            .methodNamePrefix("get")
-            .methodNameSuffix("AsLong")
-            .returnType(TypeName.INT)
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("IntUnaryOperator"))
-            .methodNamePrefix("apply")
-            .methodNameSuffix("AsInt")
-            .methodParameter(TypeName.INT, "operand")
-            .returnType(TypeName.INT)
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("ObjIntConsumer"))
-            .methodNamePrefix("accept")
-            .methodNameSuffix("AsInt")
-            .methodParameter(VisitorGenerator.param("value"))
-            .methodParameter(TypeName.INT, "in")
-            // .typeParameter("T")
-            .returnType(TypeName.VOID)
-            .boundType(ClassName.get(IntConsumer.class))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("ToIntFunction"))
-            .methodNamePrefix("apply")
-            .methodNameSuffix("AsInt")
-            .methodParameter(VisitorGenerator.param("value"))
-            .returnType(TypeName.INT)
-            // .typeParameter("T")
-            .boundType(ClassName.get(IntSupplier.class))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("IntToLongFunction"))
-            .methodNamePrefix("apply")
-            .methodNameSuffix("AsLong")
-            .methodParameter(TypeName.INT, "value")
-            .returnType(TypeName.LONG)
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("Function"))
-            .methodNamePrefix("apply")
-            .methodParameter(VisitorGenerator.param("value"))
-            // .typeParameter("T")
-            .typeParameter("R")
-            .returnType(TypeVariableName.get("R"))
-            .boundType(ClassName.get(Supplier.class))
-            .build(),
-
-        VisitorSpec.builder()
-            .name(this.makeName("BiFunction"))
-            .methodNamePrefix("apply")
-            .typeParameter("T")
-            .typeParameter("U")
-            .typeParameter("R")
-            .methodParameter(VisitorGenerator.param("value"))
-            .methodParameter(typeVarParam("U", "u"))
-            .returnType(TypeVariableName.get("R"))
-            .boundType(ClassName.get(Function.class))
-            .build(),
+        this.fromFunctionalInterface(BiConsumer.class, Consumer.class),
+        this.fromFunctionalInterface(Supplier.class),
+        this.fromFunctionalInterface(IntSupplier.class),
+        this.fromFunctionalInterface(BooleanSupplier.class),
+        this.fromFunctionalInterface(IntUnaryOperator.class),
+        this.fromFunctionalInterface(ObjIntConsumer.class, IntConsumer.class),
+        this.fromFunctionalInterface(ToIntFunction.class, IntSupplier.class),
+        this.fromFunctionalInterface(IntToLongFunction.class, Runnable.class),
+        this.fromFunctionalInterface(Function.class, Supplier.class),
+        this.fromFunctionalInterface(BiFunction.class, Function.class),
 
     };
 
@@ -286,7 +209,7 @@ public class Builder {
             .build();
 
         try {
-          JavaFile.builder(this.packageName, implgen.generate(spec, ctx)).build().writeTo(this.filer);
+          JavaFile.builder(this.packageName, implgen.generate(spec, ctx)).build().writeTo(this.env.getFiler());
         } catch (final IOException e) {
           throw new RuntimeException(e);
         }
@@ -323,49 +246,8 @@ public class Builder {
 
     container.addType(enumtype.build());
 
-    JavaFile.builder(this.packageName, container.build()).build().writeTo(this.filer);
+    JavaFile.builder(this.packageName, container.build()).build().writeTo(this.env.getFiler());
 
-  }
-
-  // generate the methods to invoke in the main class
-
-  private MethodSpec generateMainClassBoundInvokers(ClassName klass, VisitorSpec spec) {
-
-    final MethodSpec.Builder method = MethodSpec.methodBuilder(spec.applyName("Self"));
-
-    method.addJavadoc(String.format("generateMainClassBoundInvokers(%s, %s)", klass, spec.getName()));
-
-    method.addModifiers(Modifier.PUBLIC);
-    method.addModifiers(Modifier.STATIC);
-    method.returns(spec.calculateBoundReturnType(klass));
-
-    method.addTypeVariables(spec.calculateBoundTypeVariables(klass));
-
-    method.addParameter(ParameterSpec.builder(TypeVariableName.get("T"), "instance").build());
-    method.addParameter(ParameterSpec.builder(spec.toType(a -> a), "visitor").build());
-
-    final ClassName child = klass;
-
-    method.addParameters(spec.getMethodParameters().subList(1, spec.getMethodParameters().size())
-        .stream().map(a -> a.apply(child)).collect(Collectors.toList()));
-
-    final List<String> args = new LinkedList<>();
-
-    args.add("visitor");
-    args.add("instance");
-
-    args.addAll(spec.getMethodParameters().subList(1, spec.getMethodParameters().size()).stream()
-        .map(a -> a.apply(child)).map(p -> p.name).collect(Collectors.toList()));
-
-    final String strargs = args.stream().collect(Collectors.joining(", "));
-
-    method.addStatement(
-        ((spec.returnType() == TypeName.VOID) ? "" : "return ")
-            + "Type.fromInstance(instance).$L($L)",
-        spec.applyName(),
-        strargs);
-
-    return method.build();
   }
 
   private MethodSpec generateMainClassInvoker(ClassName klass, VisitorSpec spec) {
@@ -459,39 +341,6 @@ public class Builder {
 
   }
 
-  private MethodSpec generateMainClassSelfBinders(ClassName klass, VisitorSpec spec) {
-
-    final MethodSpec.Builder method = MethodSpec.methodBuilder("bindSelf" + (spec.getMethodNameSuffix() != null ? spec.getMethodNameSuffix() : ""));
-
-    method.addModifiers(Modifier.PUBLIC);
-    method.addModifiers(Modifier.STATIC);
-    method.addJavadoc(String.format("generateMainClassSelfBinders(%s, %s)", klass, spec.getName()));
-
-    method.returns(spec.calculateBoundReturnType(klass));
-
-    method.addTypeVariable(TypeVariableName.get(spec.typeVariables().get(0).name, klass));
-    method.addTypeVariables(spec.typeVariables().subList(1, spec.typeVariables().size()));
-    method.addParameter(ParameterSpec.builder(TypeVariableName.get("T"), "instance").build());
-    method.addParameter(ParameterSpec.builder(spec.toType(a -> a), "visitor").build());
-
-    final ClassName child = klass;
-
-    method.addStatement("java.util.Objects.requireNonNull(visitor)");
-    method.addStatement("final Type type = Type.fromInstance(instance)");
-
-    final String args = spec.getMethodParameters().subList(1, spec.getMethodParameters().size()).stream().map(a -> a.apply(child)).map(p -> p.name)
-        .collect(Collectors.joining(", "));
-
-    method.addStatement(
-        "return ($L) -> type.$L(visitor, instance$L)",
-        args,
-        spec.applyName(),
-        args.length() > 0 ? ", " + args : "");
-
-    return method.build();
-
-  }
-
   // generate the Invoker interface
 
   private TypeSpec generateBinder(VisitorSpec[] specs, ClassName className, ClassName invokerClass) {
@@ -502,6 +351,7 @@ public class Builder {
     iface.addModifiers(Modifier.PUBLIC);
 
     for (final VisitorSpec spec : specs) {
+
       final MethodSpec.Builder applyMethod = MethodSpec.methodBuilder(spec.applyName());
 
       applyMethod.addJavadoc(String.format("generateBinder(%s, %s)", className, spec.getName()));
@@ -524,56 +374,6 @@ public class Builder {
     }
 
     return iface.build();
-
-  }
-
-  /**
-   * A default method generated on the Invoker interface that returns a lambda
-   * to dispatch any requests through to the visitor, but with the first
-   * parameter being replaced with the provided instance.
-   *
-   * @param klass
-   * @param spec
-   * @return
-   */
-
-  private MethodSpec generateInvokerDefaultBind(ClassName klass, VisitorSpec spec) {
-
-    final MethodSpec.Builder method = MethodSpec.methodBuilder("bind" + (spec.getMethodNameSuffix() != null ? spec.getMethodNameSuffix() : ""));
-
-    // method.addJavadoc("returns a XXX bound to this object\n");
-
-    method.addJavadoc(String.format("generateInvokerDefaultBind(%s, %s)", klass, spec.getName()));
-
-    method.addModifiers(Modifier.PUBLIC);
-    method.addModifiers(Modifier.DEFAULT);
-
-    if (spec.getTypeParameters().size() <= 1) {
-      method.returns(spec.getBoundType());
-    } else {
-      method.returns(
-          ParameterizedTypeName.get(spec.getBoundType(), spec.getTypeParameters().subList(1, spec.getTypeParameters().size()).toArray(new TypeName[0])));
-    }
-
-    // method.returns(spec.toType(a -> ClassName.get("java.util.function",
-    // a.simpleName().substring(0, a.simpleName().length() -
-    // "Visitor".length()))));
-
-    method.addTypeVariables(spec.typeVariables());
-
-    method.addParameter(ParameterSpec.builder(spec.toType(a -> a), "visitor").build());
-
-    final ClassName child = klass;
-
-    final String args = spec.getMethodParameters().stream().map(a -> a.apply(child)).map(p -> p.name).collect(Collectors.joining(", "));
-
-    method.addStatement(
-        "return ($L) -> $L(visitor$L)",
-        args,
-        spec.applyName(),
-        args.length() > 0 ? ", " + args : "");
-
-    return method.build();
 
   }
 

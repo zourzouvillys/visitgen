@@ -28,7 +28,7 @@ public class VisitableUtils {
   }
 
   public static boolean isVisitableBase(TypeElement root) {
-    if (superTypes(root.asType()).filter(type -> type.getAnnotation(Visitable.class) != null).findAny().isPresent()) {
+    if (superTypes(root.asType()).filter(type -> type.getAnnotation(Visitable.Base.class) != null).findAny().isPresent()) {
       return true;
     }
     return false;
@@ -46,7 +46,7 @@ public class VisitableUtils {
   }
 
   public static List<TypeElement> getVisitableBase(Element root) {
-    return superTypes(root.asType()).filter(type -> type.getAnnotation(Visitable.class) != null).collect(Collectors.toList());
+    return superTypes(root.asType()).filter(type -> type.getAnnotation(Visitable.Base.class) != null).collect(Collectors.toList());
   }
 
 }
