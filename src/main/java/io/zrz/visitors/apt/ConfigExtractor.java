@@ -18,8 +18,10 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
+import javax.tools.Diagnostic;
 import javax.tools.Diagnostic.Kind;
 
+import com.google.auto.common.MoreElements;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
@@ -28,12 +30,15 @@ import com.squareup.javapoet.TypeVariableName;
 import io.zrz.visitors.VisitorGenerator;
 import io.zrz.visitors.VisitorSpec;
 import io.zrz.visitors.VisitorSpec.VisitorSpecBuilder;
+import io.zrz.visitors.apt.VisitableConf.VisitableConfBuilder;
 
 public class ConfigExtractor {
 
-  public static List<VisitorSpec> specs(TypeElement tbase, ProcessingEnvironment env) {
+  public static VisitableConf specs(TypeElement tbase, ProcessingEnvironment env) {
 
-    final List<VisitorSpec> specs = new LinkedList<>();
+    final VisitableConfBuilder vb = VisitableConf.builder();
+
+    vb.outputPackage(MirrorStuff.getFullPackageName(MoreElements.asPackage(tbase.getEnclosingElement())));
 
     for (final AnnotationMirror ant : tbase.getAnnotationMirrors()) {
 
@@ -46,7 +51,7 @@ public class ConfigExtractor {
         final VisitorSpec spec = processVisitorAnnotation(env, tbase, (AnnotationMirror) mirror.getValue());
 
         if (spec != null) {
-          specs.add(spec);
+          vb.visitorSpec(spec);
         }
 
       }
@@ -61,19 +66,19 @@ public class ConfigExtractor {
           continue;
         }
 
-        final ClassName targetName = ClassName.get("io.zrz.test", "MyNodeVisitors", "MYTESTVisitor");
+        final ClassName targetName = ClassName.get("io.zrz.testxxx", "MyNodeVisitors", "MYTESTVisitor");
 
         final VisitorSpec from = from(env, targetName, type, method.get(), 0, null);
 
         if (from != null) {
-          specs.add(from);
+          vb.visitorSpec(from);
         }
 
       }
 
     }
 
-    return specs;
+    return vb.build();
 
   }
 
@@ -88,10 +93,19 @@ public class ConfigExtractor {
       return null;
     }
 
-    final String className = MirrorStuff.getAnnotationKeyValue(vant, "className", String.class).orElse("UNNAMED");
-    final ClassName targetName = ClassName.get("io.zrz.test", "MyNodeVisitors", className);
+    final String className = MirrorStuff.getAnnotationKeyValue(vant, "className", String.class)
+        .orElse(type.getSimpleName().toString() + tbase.getSimpleName().toString() + "Visitor");
+
+    final String packageName = MirrorStuff.getAnnotationKeyValue(vant, "packageName", String.class)
+        .orElse(MoreElements.getPackage(tbase).getQualifiedName().toString());
+
+    env.getMessager().printMessage(Kind.NOTE, String.format("className=%s, packageName=%s", className, packageName), tbase);
+
+    final ClassName targetName = ClassName.get(packageName, "MyNodeVisitors", className);
     final Optional<Integer> bind = MirrorStuff.getAnnotationKeyValue(vant, "bindParam");
     final Optional<TypeMirror> bindType = MirrorStuff.getAnnotationKeyValue(vant, "bindType");
+
+    env.getMessager().printMessage(Diagnostic.Kind.NOTE, "Skpping " + packageName);
 
     return from(env, targetName, type, method.get(), bind.orElse(0), bindType.map(mirror -> resolve(env, mirror)).orElse(null));
 

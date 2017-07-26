@@ -80,7 +80,7 @@ public class AutoProcessor extends AbstractProcessor {
 
     state.round(env);
 
-    if (!this.visitable.isEmpty() && env.processingOver()) {
+    if (!this.visitable.isEmpty()) {
 
       // this.done = true;
       this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "DONE: " + this.visitable.size());
@@ -89,8 +89,10 @@ public class AutoProcessor extends AbstractProcessor {
 
       this.visitable.forEach((k, v) -> {
         if (!v.types.isEmpty()) {
-          this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "TYPE: " + k + ": " + v.types.stream().collect(Collectors.joining(", ")));
-          b.add(k, v.types);
+          if (state.add(k)) {
+            this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "TYPE: " + k + ": " + v.types.stream().collect(Collectors.joining(", ")));
+            b.add(k, v.types);
+          }
         }
       });
 

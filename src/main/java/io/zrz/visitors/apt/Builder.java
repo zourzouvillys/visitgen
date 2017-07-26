@@ -26,6 +26,7 @@ import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Types;
+import javax.tools.Diagnostic;
 
 import com.google.common.collect.Lists;
 import com.squareup.javapoet.ClassName;
@@ -47,8 +48,6 @@ import io.zrz.visitors.generators.SimpleVisitorGenerator;
 import lombok.SneakyThrows;
 
 public class Builder {
-
-  private final String packageName = "io.zrz.test";
 
   private final ProcessingEnvironment env;
 
@@ -73,6 +72,10 @@ public class Builder {
     // .methodParameter(typeVarParam("T", "t"))
     // .returnType(TypeName.BOOLEAN)
     // .build();
+  }
+
+  private ClassName makeName(String string) {
+    return ClassName.get("io.zrz.test", "MyNodeVisitors", string + "Visitor");
   }
 
   /**
@@ -132,10 +135,6 @@ public class Builder {
     return this.fromFunctionalInterface(funcintf, 0, boundType);
   }
 
-  private ClassName makeName(String string) {
-    return ClassName.get(this.packageName, "MyNodeVisitors", string + "Visitor");
-  }
-
   @SneakyThrows
   public void add(String base, Set<String> types) {
 
@@ -153,7 +152,11 @@ public class Builder {
 
     final List<VisitorSpec> lspecs = Lists.newArrayList();
 
-    lspecs.addAll(ConfigExtractor.specs(tbase, this.env));
+    final VisitableConf conf = ConfigExtractor.specs(tbase, this.env);
+
+    lspecs.addAll(conf.getVisitorSpecs());
+
+    this.env.getMessager().printMessage(Diagnostic.Kind.NOTE, "Generating: " + conf);
 
     // for (final Class<?> v : ant.value()) {
     // lspecs.add(this.fromFunctionalInterface(v));
@@ -184,12 +187,14 @@ public class Builder {
 
     };
 
-    container.addType(this.generateBinder(specs, klass, ClassName.get(this.packageName, "MyNodeVisitors", "Invoker")));
+    final ClassName invoker = ClassName.get(conf.getOutputPackage(), "MyNodeVisitors", "Invoker");
+
+    container.addType(this.generateBinder(specs, klass, invoker));
 
     final TypeSpec.Builder enumtype = TypeSpec.enumBuilder("Type")
         .addModifiers(Modifier.PUBLIC);
 
-    enumtype.addSuperinterface(ClassName.get(this.packageName, "MyNodeVisitors", "Invoker"));
+    enumtype.addSuperinterface(invoker);
 
     children.forEach(child -> {
       enumtype.addEnumConstant(((ClassName) child).simpleName(), this.buildMethods(enumtype, specs, klass, child));
@@ -209,7 +214,7 @@ public class Builder {
             .build();
 
         try {
-          JavaFile.builder(this.packageName, implgen.generate(spec, ctx)).build().writeTo(this.env.getFiler());
+          JavaFile.builder(conf.getOutputPackage(), implgen.generate(spec, ctx)).build().writeTo(this.env.getFiler());
         } catch (final IOException e) {
           throw new RuntimeException(e);
         }
@@ -246,7 +251,7 @@ public class Builder {
 
     container.addType(enumtype.build());
 
-    JavaFile.builder(this.packageName, container.build()).build().writeTo(this.env.getFiler());
+    JavaFile.builder(conf.getOutputPackage(), container.build()).build().writeTo(this.env.getFiler());
 
   }
 
