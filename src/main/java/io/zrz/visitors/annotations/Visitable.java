@@ -8,19 +8,39 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
+/**
+ * annotation to mark visitable interfaces
+ *
+ * The base interface for the visitable type should be annotated
+ * with @Visitable.Base.
+ *
+ * Each type that is to be visitable needs to be annotated with @Visitable.Type.
+ *
+ */
+
 @Documented
 @Retention(SOURCE)
 @Target(TYPE)
 public @interface Visitable {
 
+  /**
+   * indicates a base interface for a visitable heirachy.
+   */
+
   @Documented
   @Target(ElementType.TYPE)
   @Retention(SOURCE)
   public @interface Base {
+
     Class<?>[] value() default {};
 
     Visitor[] visitors() default {};
+
   }
+
+  /**
+   * Indicates that the class annotated with this method should be visitable.
+   */
 
   @Documented
   @Target(ElementType.TYPE)
@@ -29,6 +49,10 @@ public @interface Visitable {
     String value() default "";
 
   }
+
+  /**
+   * defines a visitor type.
+   */
 
   @Documented
   @Target(ElementType.TYPE)

@@ -36,13 +36,6 @@ public class VisitableUtils {
 
   public static boolean isVisitableType(TypeElement root) {
     return root.getAnnotation(Visitable.Type.class) != null;
-
-    // if (superTypes(root.asType()).filter(type ->
-    // type.getAnnotation(Visitable.Base.class) != null).findAny().isPresent())
-    // {
-    // return true;
-    // }
-    // return false;
   }
 
   public static List<TypeElement> getVisitableBase(Element root) {

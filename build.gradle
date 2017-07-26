@@ -1,11 +1,27 @@
+buildscript {
+
+    repositories {
+        mavenCentral()
+    }
+ 
+    dependencies {
+		classpath 'net.sf.proguard:proguard-gradle:5.3.3'
+	}
+}
+
+import proguard.gradle.ProGuardTask
+
 plugins {
   id "com.github.johnrengelman.shadow" version "2.0.1"
   id "net.ltgt.apt" version "0.10"
+  id "com.jfrog.bintray" version "1.7.3"
 }
+
 
 apply plugin: 'java-library'
 apply plugin: 'eclipse'
 apply plugin: 'java'
+apply plugin: 'maven-publish'
 
 
 allprojects {
@@ -16,37 +32,85 @@ allprojects {
 
 dependencies {
 
-	implementation 'com.fasterxml.jackson.core:jackson-databind:2.8.9'
-    implementation 'com.google.guava:guava:22.0'
-
-	compile 'com.google.auto.service:auto-service:1.0-rc3'
-
-	compileOnly 'org.projectlombok:lombok:1.16.18'
 	apt 'org.projectlombok:lombok:1.16.18'
-
-	api group: 'javax.validation', name: 'validation-api', version: '1.0.0.GA'
-	compile 'com.google.code.findbugs:jsr305:3.0.2'
+	compileOnly 'org.projectlombok:lombok:1.16.18'
 	
 	implementation 'com.squareup:javapoet:1.9.0'
+    
+    implementation('com.google.guava:guava:22.0') {
+    	exclude group: 'org.codehaus.mojo', module: 'animal-sniffer-annotations'
+    	exclude group: 'com.google.j2objc', module: 'j2objc-annotations'
+    	exclude group: 'com.google.code.findbugs', module: 'jsr305'
+    }
 
-	compile 'org.immutables:immutables:2.5.6'
-	compileOnly "org.immutables:value:2.5.6:annotations"
-	apt 'org.immutables:immutables:2.5.6'
-	apt "org.immutables:value:2.5.6"
+	apt('com.google.auto.service:auto-service:1.0-rc3')
+	
+	compile('com.google.auto.service:auto-service:1.0-rc3') {
+		exclude group: 'com.google.guava', module: 'guava'
+	}
 
+    
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
     
-    //implementation project('graphql-core')
-    //implementation project('graphql-schema')
-    
 }
 
+shadowJar {
+   relocate 'com.google', 'shaded.io.zrz.visitors.com.google'
+   relocate 'com.squareup', 'shaded.io.zrz.visitors.com.squareup'
+   exclude 'META-INF/maven/**'
+}
+
+
+ 
+task proguard(type: ProGuardTask) {
+  configuration 'proguard.txt'
+  injars "build/libs/visitor-generator-all.jar"
+  outjars "build/libs/visitor-generator.jar" 
+  libraryjars "${System.getProperty('java.home')}/lib/rt.jar"
+}
 
 
 
 task wrapper(type: Wrapper) {
     gradleVersion = '4.0'
+}
+
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = 'sources'
+}
+
+
+publishing {
+  publications {
+    maven(MavenPublication) { 
+    	artifact 'build/libs/visitor-generator.jar'
+      	groupId 'io.zrz'
+      	artifactId 'visitors'
+      	version '0.1'
+    }
+  }
+}
+
+
+bintray {
+
+    user = System.getenv('BINTRAY_USER')
+    key = System.getenv('BINTRAY_KEY')
+    
+  	publications = ['maven']
+    
+    pkg {
+        repo = 'maven'
+        name = 'visitors'
+        userOrg = user
+        licenses = ['Apache-2.0']
+        publicDownloadNumbers = true
+        vcsUrl = 'https://github.com/zourzouvillys/visitgen.git'
+    }    
+    
 }
 
 
