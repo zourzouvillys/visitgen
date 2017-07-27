@@ -24,7 +24,7 @@ import java.lang.annotation.Target;
 public @interface Visitable {
 
   /**
-   * indicates a base interface for a visitable heirachy.
+   * indicates a base interface for a visitable hierarchy.
    */
 
   @Documented
@@ -32,9 +32,22 @@ public @interface Visitable {
   @Retention(SOURCE)
   public @interface Base {
 
-    Class<?>[] value() default {};
+    Visitor[] value() default {};
 
-    Visitor[] visitors() default {};
+    /**
+     * the package name for the Invoker and enum of types to be placed in. if
+     * empty, uses the package that of the type this annotation is on.
+     */
+
+    String packageName() default "";
+
+    /**
+     * the class name to place the Invoker and enum in. If empty, defaults to
+     * the name of the type annotated with this annotation and "Visitors"
+     * appended.
+     */
+
+    String className() default "";
 
   }
 
@@ -46,7 +59,27 @@ public @interface Visitable {
   @Target(ElementType.TYPE)
   @Retention(SOURCE)
   public @interface Type {
+
+    /**
+     * The name to use for this type in the visitor method names. If not
+     * defined, defaults to the class name the annotation is on.
+     *
+     * <pre>
+     * void visitMyType(MyType visitable);
+     *
+     * void visitMyOtherType(MyOtherType visitable);
+     * </pre>
+     *
+     */
+
     String value() default "";
+
+    /**
+     * The name of the parameter to pass to the visiting method. If not defined,
+     * defaults to "visitable".
+     */
+
+    String paramName() default "";
 
   }
 
@@ -68,7 +101,7 @@ public @interface Visitable {
     /**
      * The parameter number that will receive the visited object. Defaults to
      * the first parameter. If -1 is specified, then no visiting parameter will
-     * be generated.
+     * be provided to the visit methods.
      */
 
     int bindParam() default 0;

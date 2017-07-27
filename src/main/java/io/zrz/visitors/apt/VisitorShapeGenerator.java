@@ -4,13 +4,10 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 import javax.annotation.processing.ProcessingEnvironment;
-import javax.lang.model.element.AnnotationMirror;
-import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
@@ -18,10 +15,8 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
-import javax.tools.Diagnostic;
 import javax.tools.Diagnostic.Kind;
 
-import com.google.auto.common.MoreElements;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
@@ -30,87 +25,53 @@ import com.squareup.javapoet.TypeVariableName;
 import io.zrz.visitors.VisitorGenerator;
 import io.zrz.visitors.VisitorSpec;
 import io.zrz.visitors.VisitorSpec.VisitorSpecBuilder;
-import io.zrz.visitors.apt.VisitableConf.VisitableConfBuilder;
 
-public class ConfigExtractor {
+/**
+ * given a functional interface, generates the VisitorSpec for it.
+ */
 
-  public static VisitableConf specs(TypeElement tbase, ProcessingEnvironment env) {
+public class VisitorShapeGenerator {
 
-    final VisitableConfBuilder vb = VisitableConf.builder();
+  private final ProcessingEnvironment env;
 
-    vb.outputPackage(MirrorStuff.getFullPackageName(MoreElements.asPackage(tbase.getEnclosingElement())));
+  ClassName targetName;
 
-    for (final AnnotationMirror ant : tbase.getAnnotationMirrors()) {
+  /**
+   *
+   */
 
-      if (!ant.getAnnotationType().toString().equals("io.zrz.visitors.annotations.Visitable.Base")) {
-        continue;
-      }
+  VisitorShapeGenerator(ProcessingEnvironment env) {
 
-      for (final AnnotationValue mirror : MirrorStuff.getAnnotationListKeyValue(ant, "value")) {
-
-        final VisitorSpec spec = processVisitorAnnotation(env, tbase, (AnnotationMirror) mirror.getValue());
-
-        if (spec != null) {
-          vb.visitorSpec(spec);
-        }
-
-      }
-
-    }
-
-    return vb.build();
-
-  }
-
-  private static VisitorSpec processVisitorAnnotation(ProcessingEnvironment env, TypeElement tbase, AnnotationMirror vant) {
-
-    final TypeElement type = (TypeElement) env.getTypeUtils().asElement(MirrorStuff.getAnnotationKeyValue(vant, "value", TypeMirror.class).orElse(null));
-
-    final Optional<ExecutableElement> method = MirrorStuff.getFunctionalInterface(type);
-
-    if (!method.isPresent()) {
-      env.getMessager().printMessage(Kind.ERROR, String.format("@Visitable.Visitor '%s' isn't @FunctionalInterface, %s", type, tbase), tbase);
-      return null;
-    }
-
-    final String className = MirrorStuff.getAnnotationKeyValue(vant, "className", String.class)
-        .orElse(type.getSimpleName().toString() + tbase.getSimpleName().toString() + "Visitor");
-
-    final String packageName = MirrorStuff.getAnnotationKeyValue(vant, "packageName", String.class)
-        .orElse(MoreElements.getPackage(tbase).getQualifiedName().toString());
-
-    env.getMessager().printMessage(Kind.NOTE, String.format("className=%s, packageName=%s", className, packageName), tbase);
-
-    final ClassName targetName = ClassName.get(packageName, "MyNodeVisitors", className);
-    final Optional<Integer> bind = MirrorStuff.getAnnotationKeyValue(vant, "bindParam");
-    final Optional<TypeMirror> bindType = MirrorStuff.getAnnotationKeyValue(vant, "bindType");
-
-    env.getMessager().printMessage(Diagnostic.Kind.NOTE, "Skpping " + packageName);
-
-    return from(env, targetName, type, method.get(), bind.orElse(0), bindType.map(mirror -> resolve(env, mirror)).orElse(null));
+    this.env = env;
 
   }
 
   /**
-   * creates the visitor spec from the annotation.
-   *
-   *
-   *
-   * @param targetName
    * @param iface
-   * @param method
-   * @param bindParam
+   *          The interface that we are using to generate the visitor shape
+   *          from.
+   *
    * @param bindType
+   *          The bound type, if there is one.
+   *
+   * @param bindParam
+   *          The parameter number that we bind the visitable to.
+   *
    * @return
    */
 
-  private static VisitorSpec from(ProcessingEnvironment env, ClassName targetName, TypeElement iface, ExecutableElement method, int bindParam,
-      TypeElement bindType) {
+  public ReflectedVisitable.VisitorBinder shape(ClassName iface, TypeElement bindType, int bindParam) {
 
+    // given the raw name
+    final TypeElement ifaceType = this.env.getElementUtils().getTypeElement(iface.reflectionName());
+
+    // the method
+    final ExecutableElement method = MirrorStuff.getFunctionalInterface(ifaceType).orElse(null);
+
+    // the return type.
     final TypeName returnType = TypeName.get(method.getReturnType());
 
     final VisitorSpecBuilder vb = VisitorSpec.builder()
-        .name(targetName)
         .methodNamePrefix(method.getSimpleName().toString())
         .returnType(returnType);
 
@@ -120,7 +81,7 @@ public class ConfigExtractor {
 
     final TypeName[] vartypes = new TypeName[method.getParameters().size()];
 
-    for (final TypeParameterElement t : iface.getTypeParameters()) {
+    for (final TypeParameterElement t : ifaceType.getTypeParameters()) {
       final TypeName tt = TypeName.get(t.asType());
     }
 
@@ -155,11 +116,12 @@ public class ConfigExtractor {
 
       final TypeName type = TypeName.get(bindType.asType());
 
-      final Optional<ExecutableElement> oexec = functionalMethod(env, bindType);
+      final Optional<ExecutableElement> oexec = functionalMethod(this.env, bindType);
 
       if (!oexec.isPresent()) {
-        env.getMessager().printMessage(Kind.ERROR, String.format("@Visitable.Visitor with bindType='%s' isn't @FunctionalInterface. %s", bindType, bindType),
-            iface);
+        this.env.getMessager().printMessage(Kind.ERROR,
+            String.format("@Visitable.Visitor with bindType='%s' isn't @FunctionalInterface. %s", bindType, bindType),
+            ifaceType);
         return null;
       }
 
@@ -222,24 +184,13 @@ public class ConfigExtractor {
 
     }
 
-    return vb.build();
+    return null;
 
   }
 
   /**
-   * must be a functional interface.
-   *
-   * may have parameters.
-   *
-   * @param env
-   * @param bindMirror
-   * @return
+   * extract the executable element for the given type.
    */
-
-  private static TypeElement resolve(ProcessingEnvironment env, TypeMirror bindMirror) {
-    // resolve the type
-    return Objects.requireNonNull(env.getElementUtils().getTypeElement(bindMirror.toString()));
-  }
 
   private static Optional<ExecutableElement> functionalMethod(ProcessingEnvironment env, TypeElement type) {
 

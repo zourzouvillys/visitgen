@@ -1,31 +1,14 @@
 package io.zrz.visitors.apt;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.BiPredicate;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.IntConsumer;
-import java.util.function.IntSupplier;
-import java.util.function.IntToLongFunction;
-import java.util.function.IntUnaryOperator;
-import java.util.function.ObjIntConsumer;
-import java.util.function.Predicate;
-import java.util.function.Supplier;
-import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 
 import com.google.common.collect.Lists;
@@ -41,11 +24,13 @@ import com.squareup.javapoet.TypeVariableName;
 
 import io.zrz.visitors.GeneratorContext;
 import io.zrz.visitors.GeneratorUtils;
-import io.zrz.visitors.VisitorGenerator;
 import io.zrz.visitors.VisitorSpec;
-import io.zrz.visitors.VisitorSpec.VisitorSpecBuilder;
 import io.zrz.visitors.generators.SimpleVisitorGenerator;
 import lombok.SneakyThrows;
+
+/**
+ * APT builder.
+ */
 
 public class Builder {
 
@@ -53,86 +38,6 @@ public class Builder {
 
   public Builder(ProcessingEnvironment processingEnv) {
     this.env = processingEnv;
-  }
-
-  /**
-   * Pass in a functional interface, get out a VisitorSpec.
-   *
-   * @param funcintf
-   * @return
-   */
-
-  public VisitorSpec fromFunctionalInterface(Class<?> funcintf) {
-    return this.fromFunctionalInterface(funcintf, -1, null);
-    // return VisitorSpec.builder()
-    // .name(ClassName.get(this.packageName, "MyNodeVisitors",
-    // funcintf.getSimpleName()))
-    // .methodNamePrefix("test")
-    // .typeParameter("T")
-    // .methodParameter(typeVarParam("T", "t"))
-    // .returnType(TypeName.BOOLEAN)
-    // .build();
-  }
-
-  private ClassName makeName(String string) {
-    return ClassName.get("io.zrz.test", "MyNodeVisitors", string + "Visitor");
-  }
-
-  /**
-   * Generates a visitor from a functional interface, using the given parameter
-   * number as the input, and using the specified class as the bound type.
-   *
-   * @param funcintf
-   * @param bindParamNumber
-   * @return
-   */
-
-  public VisitorSpec fromFunctionalInterface(Class<?> funcintf, int bindParamNumber, Class<?> boundType) {
-
-    final Method method = GeneratorUtils.lookup(funcintf);
-
-    final TypeName returnType = TypeName.get(method.getGenericReturnType());
-
-    final VisitorSpecBuilder vb = VisitorSpec.builder()
-        .name(this.makeName(funcintf.getSimpleName()))
-        .methodNamePrefix(method.getName())
-        .returnType(returnType);
-
-    if (boundType != null) {
-      vb.boundType(ClassName.get(boundType));
-    }
-
-    for (final Type t : method.getGenericParameterTypes()) {
-
-      final TypeName tt = TypeName.get(t);
-
-      if (tt instanceof TypeVariableName) {
-
-        vb.typeParameter((TypeVariableName) tt);
-
-      }
-
-    }
-
-    for (int i = 0; i < method.getParameterCount(); ++i) {
-
-      if (i == bindParamNumber) {
-        vb.methodParameter(VisitorGenerator.param("value"));
-      } else {
-        vb.methodParameter(TypeName.get(method.getGenericParameterTypes()[i]), method.getParameters()[i].getName());
-      }
-
-    }
-
-    if (returnType instanceof TypeVariableName) {
-      vb.typeParameter((TypeVariableName) returnType);
-    }
-
-    return vb.build();
-  }
-
-  public VisitorSpec fromFunctionalInterface(Class<?> funcintf, Class<?> boundType) {
-    return this.fromFunctionalInterface(funcintf, 0, boundType);
   }
 
   @SneakyThrows
@@ -143,17 +48,19 @@ public class Builder {
 
     final TypeElement tbase = this.env.getElementUtils().getTypeElement(base);
 
-    final TypeSpec.Builder container = TypeSpec.classBuilder("MyNodeVisitors")
+    // the container that we will place the visitors in
+    final ClassName containerClassName = ClassName.get("io.ct.z.s", "MyNodeVisitors");
+
+    final TypeSpec.Builder container = TypeSpec.classBuilder(containerClassName)
         .addModifiers(Modifier.PUBLIC);
 
     // env.getElementUtils().getBinaryName(elt)
 
-    final Types tt = this.env.getTypeUtils();
-
-    final List<VisitorSpec> lspecs = Lists.newArrayList();
-
+    // extract the configuration
     final VisitableConf conf = ConfigExtractor.specs(tbase, this.env);
 
+    //
+    final List<VisitorSpec> lspecs = Lists.newArrayList();
     lspecs.addAll(conf.getVisitorSpecs());
 
     this.env.getMessager().printMessage(Diagnostic.Kind.NOTE, "Generating: " + conf);
@@ -164,30 +71,7 @@ public class Builder {
 
     final VisitorSpec[] specs = lspecs.toArray(new VisitorSpec[0]);
 
-    final VisitorSpec[] aspecs = {
-
-        // this.fromFunctionalInterface(Predicate.class),
-        this.fromFunctionalInterface(Predicate.class, 0, BooleanSupplier.class),
-        // this.fromFunctionalInterface(BiPredicate.class),
-        this.fromFunctionalInterface(BiPredicate.class, 0, Predicate.class),
-
-        // this.fromFunctionalInterface(Consumer.class),
-        this.fromFunctionalInterface(Consumer.class, Runnable.class),
-
-        this.fromFunctionalInterface(BiConsumer.class, Consumer.class),
-        this.fromFunctionalInterface(Supplier.class),
-        this.fromFunctionalInterface(IntSupplier.class),
-        this.fromFunctionalInterface(BooleanSupplier.class),
-        this.fromFunctionalInterface(IntUnaryOperator.class),
-        this.fromFunctionalInterface(ObjIntConsumer.class, IntConsumer.class),
-        this.fromFunctionalInterface(ToIntFunction.class, IntSupplier.class),
-        this.fromFunctionalInterface(IntToLongFunction.class, Runnable.class),
-        this.fromFunctionalInterface(Function.class, Supplier.class),
-        this.fromFunctionalInterface(BiFunction.class, Function.class),
-
-    };
-
-    final ClassName invoker = ClassName.get(conf.getOutputPackage(), "MyNodeVisitors", "Invoker");
+    final ClassName invoker = containerClassName.nestedClass("Invoker");
 
     container.addType(this.generateBinder(specs, klass, invoker));
 

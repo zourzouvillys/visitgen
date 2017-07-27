@@ -48,17 +48,6 @@ public class MirrorStuff {
     }
   }
 
-  public static <T> Optional<T> getAnnotationKeyValue(AnnotationValue av, String key, Class<T> klass) {
-
-    if (av == null) {
-      return Optional.empty();
-    }
-
-    System.err.println(av.getClass().getInterfaces());
-
-    return Optional.empty();
-  }
-
   public static <T> Optional<T> getAnnotationKeyValue(AnnotationMirror am, String key, Class<T> klass) {
     if (am == null) {
       return Optional.empty();

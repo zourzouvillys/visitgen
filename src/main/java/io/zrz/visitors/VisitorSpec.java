@@ -136,27 +136,12 @@ public class VisitorSpec {
       return this.getBoundType();
     } else {
       return this.getBoundType();
-      // return ParameterizedTypeName.get(this.getBoundType(),
-      // this.getTypeParameters().subList(1,
-      // this.getTypeParameters().size()).toArray(new TypeName[0]));
     }
 
   }
 
   public Iterable<TypeVariableName> calculateBoundTypeVariables(ClassName klass) {
-
-    // if (this.typeVariables().size() < 2) {
-    // return Collections.emptyList();
-    // }
-
-    final List<TypeVariableName> vars = new LinkedList<>(this.typeVariables());
-
-    // method.addTypeVariable(TypeVariableName.get(spec.typeVariables().get(0).name,
-    // klass));
-    // method.addTypeVariables(spec.typeVariables().subList(1,
-    // spec.typeVariables().size()));
-
-    return vars;
+    return new LinkedList<>(this.typeVariables());
   }
 
 }

@@ -3,6 +3,7 @@ package io.zrz.visitors.apt;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,8 +18,9 @@ import javax.tools.Diagnostic;
 import com.google.auto.service.AutoService;
 import com.google.common.collect.Sets;
 
-import io.zrz.visitors.VisitableUtils;
 import io.zrz.visitors.annotations.Visitable;
+import io.zrz.visitors.apt.ReflectedVisitable.Base;
+import io.zrz.visitors.apt.ReflectedVisitable.Type;
 import lombok.RequiredArgsConstructor;
 
 @AutoService(Processor.class)
@@ -26,6 +28,8 @@ public class AutoProcessor extends AbstractProcessor {
 
   private final Map<String, Model> visitable = new HashMap<>();
   private boolean done;
+  private AnnotationScanner scanner;
+  private int count = 0;
 
   private static ModelState state = new ModelState();
 
@@ -51,34 +55,32 @@ public class AutoProcessor extends AbstractProcessor {
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment env) {
 
+    this.count++;
+
+    if (this.scanner == null) {
+      this.scanner = new AnnotationScanner(super.processingEnv);
+    }
+
     for (final TypeElement te : annotations) {
       for (final Element e : env.getElementsAnnotatedWith(te)) {
         final TypeElement type = (TypeElement) e;
         this.visitable.computeIfAbsent(type.getQualifiedName().toString(), Model::new);
+        this.scanner.add(type);
       }
     }
 
-    for (final Element root : env.getRootElements()) {
-      switch (root.getKind()) {
-        case CLASS:
-        case ENUM:
-        case INTERFACE:
-          final TypeElement type = (TypeElement) root;
-          if (VisitableUtils.isVisitableType(type)) {
-            for (final TypeElement base : VisitableUtils.getVisitableBase(root)) {
-              this.visitable.computeIfAbsent(base.getQualifiedName().toString(), Model::new).types.add(type.getQualifiedName().toString());
-            }
-          }
-          break;
-        default:
-          break;
+    this.processingEnv.getMessager().printMessage(Diagnostic.Kind.OTHER,
+        String.format("Round %d, %d elements, over=%s", this.count, env.getRootElements().size(), env.processingOver()));
 
-      }
+    for (final Entry<String, Base> base : this.scanner.bases.entrySet()) {
+      this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, String.format("BASE: %s: %s", base.getKey(), base.getValue()));
     }
 
-    this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "ROUND: " + state + " " + env.getRootElements().size() + " / " + env.processingOver());
+    for (final Entry<String, Type> base : this.scanner.types.entrySet()) {
+      this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, String.format("TYPE: %s: %s", base.getKey(), base.getValue()));
+    }
 
-    state.round(env);
+    state.round(this.processingEnv, env, this.scanner);
 
     if (!this.visitable.isEmpty()) {
 

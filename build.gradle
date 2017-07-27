@@ -9,20 +9,30 @@ buildscript {
 	}
 }
 
-import proguard.gradle.ProGuardTask
-
 plugins {
   id "com.github.johnrengelman.shadow" version "2.0.1"
-  id "net.ltgt.apt" version "0.10"
+  //id "net.ltgt.apt" version "0.10"
   id "com.jfrog.bintray" version "1.7.3"
+  id 'io.franzbecker.gradle-lombok' version '1.8'
 }
+
+lombok {
+  version = "1.16.18"
+}
+
+
+import proguard.gradle.ProGuardTask
+
 
 
 apply plugin: 'java-library'
 apply plugin: 'eclipse'
 apply plugin: 'java'
+apply plugin: 'application'
 apply plugin: 'maven-publish'
+apply plugin: 'net.ltgt.apt'
 
+mainClassName = 'io.zrz.visitors.Main'
 
 allprojects {
   repositories {
