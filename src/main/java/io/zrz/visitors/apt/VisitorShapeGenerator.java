@@ -34,30 +34,20 @@ public class VisitorShapeGenerator {
 
   private final ProcessingEnvironment env;
 
-  ClassName targetName;
-
   /**
    *
    */
 
   VisitorShapeGenerator(ProcessingEnvironment env) {
-
     this.env = env;
-
   }
 
   /**
-   * @param iface
-   *          The interface that we are using to generate the visitor shape
-   *          from.
    *
-   * @param bindType
-   *          The bound type, if there is one.
-   *
-   * @param bindParam
-   *          The parameter number that we bind the visitable to.
-   *
-   * @return
+   */
+
+  /**
+   * calculates type stuffs.
    */
 
   public ReflectedVisitable.VisitorBinder shape(ClassName iface, TypeElement bindType, int bindParam) {

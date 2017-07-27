@@ -1,8 +1,10 @@
 package io.zrz.visitors.apt;
 
 import java.lang.annotation.Annotation;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -25,9 +27,13 @@ import com.google.auto.common.MoreElements;
 import com.google.auto.common.MoreTypes;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.TypeName;
+import com.squareup.javapoet.TypeVariableName;
 
 import io.zrz.visitors.annotations.Visitable;
+import io.zrz.visitors.annotations.Visitable.Visitor;
+import io.zrz.visitors.annotations.Visitable.Visitors;
 import io.zrz.visitors.apt.ReflectedVisitable.Visitor.VisitorBuilder;
+import io.zrz.visitors.apt.ReflectedVisitable.VisitorBinder;
 import io.zrz.visitors.apt.ReflectedVisitable.VisitorBinder.VisitorBinderBuilder;
 import io.zrz.visitors.apt.ReflectedVisitable.VisitorParam;
 
@@ -52,10 +58,24 @@ public class AnnotationScanner {
 
   public void add(TypeElement e) {
 
-    final Visitable.Base base = e.getAnnotation(Visitable.Base.class);
+    final List<ReflectedVisitable.Visitor> visitors = new LinkedList<>();
 
-    if (base != null) {
-      this.addBase(e, base);
+    final Visitable.Visitor visitor = e.getAnnotation(Visitable.Visitor.class);
+
+    if (visitor != null) {
+      visitors.add(this.addVisitor(e, visitor));
+    }
+
+    final Visitable.Visitors bvisitors = e.getAnnotation(Visitable.Visitors.class);
+
+    if (bvisitors != null) {
+      visitors.addAll(this.addVisitors(e, bvisitors));
+    }
+
+    final Visitable.Base baseant = e.getAnnotation(Visitable.Base.class);
+
+    if (baseant != null) {
+      this.addBase(e, baseant, visitors);
     }
 
     final Visitable.Type type = e.getAnnotation(Visitable.Type.class);
@@ -66,59 +86,106 @@ public class AnnotationScanner {
 
   }
 
+  private List<io.zrz.visitors.apt.ReflectedVisitable.Visitor> addVisitors(TypeElement e, Visitors avisitors) {
+    final AnnotationMirror mirror = this.getMirror(e, avisitors);
+    final List<ReflectedVisitable.Visitor> visitors = new LinkedList<>();
+    for (final AnnotationValue vant : MirrorStuff.getAnnotationListKeyValue(mirror, "value")) {
+      final AnnotationMirror visitor = vant.accept(new AnnotationValueVisitor(), null);
+      visitors.add(this.addVisitor(e, visitor));
+    }
+    return visitors;
+  }
+
+  List<ReflectedVisitable.Visitor> addVisitors(TypeElement e, AnnotationMirror mirror) {
+    final List<ReflectedVisitable.Visitor> visitors = new LinkedList<>();
+    for (final AnnotationValue vant : MirrorStuff.getAnnotationListKeyValue(mirror, "value")) {
+      // the "value" element, which is a Visitable.Visitor annotation instance.
+      final AnnotationMirror visitor = vant.accept(new AnnotationValueVisitor(), null);
+      visitors.add(this.addVisitor(e, visitor));
+    }
+    return visitors;
+  }
+
+  private io.zrz.visitors.apt.ReflectedVisitable.Visitor addVisitor(TypeElement e, Visitor visitor) {
+    return this.addVisitor(e, this.getMirror(e, visitor));
+  }
+
+  private ReflectedVisitable.Visitor addVisitor(TypeElement e, AnnotationMirror visitor) {
+
+    final VisitorBuilder vb = ReflectedVisitable.Visitor.builder();
+
+    vb.annotation(visitor);
+
+    vb.target(this.makeType(e));
+
+    final int bindParam = getAnnotationValue(visitor, "bindParam")
+        .flatMap(aval -> Optional.ofNullable(aval.accept(new IntValueVisitor(), null)))
+        .orElse(0);
+
+    vb.bindParam(bindParam);
+
+    // we have to ead the name ..
+
+    final VisitorBinder binder = getAnnotationValue(visitor, "value")
+        .map(val -> val.accept(new TypeNameValueVisitor(), null))
+        .map(t -> this.shape(t, bindParam))
+        .orElse(null);
+
+    vb.value(binder);
+
+    vb.bindType(getAnnotationValue(visitor, "bindType")
+        .map(val -> val.accept(new TypeNameValueVisitor(), null))
+        .map(t -> this.shape(t, bindParam))
+        .orElse(null));
+
+    final String pn = getAnnotationValue(visitor, "packageName")
+        .map(aval -> aval.accept(new StringValueVisitor(), null))
+        .orElse(MoreElements.getPackage(e).getQualifiedName().toString());
+
+    final String cn = getAnnotationValue(visitor, "className")
+        .map(aval -> aval.accept(new StringValueVisitor(), null))
+        .orElse(e.getSimpleName().toString() + ModelState.rawtype(binder.getTarget()).simpleName() + "Visitor");
+
+    vb.className(ClassName.get(pn, cn));
+
+    return vb.build();
+
+  }
+
   /**
    * scan the base annotation and build the info about it.
    *
    * @param e
+   * @return
    */
 
-  private void addBase(TypeElement e, Visitable.Base base) {
+  private void addBase(TypeElement e, Visitable.Base base, List<ReflectedVisitable.Visitor> visitors) {
 
     final ReflectedVisitable.Base.BaseBuilder b = ReflectedVisitable.Base.builder();
 
+    b.element(e);
     b.target(this.makeType(e));
-    b.packageName(base.packageName());
-    b.className(base.className());
+
+    final String[] parts = base.className().length == 0 ? new String[] { e.getSimpleName().toString() + "Visitors" } : base.className();
+
+    final ClassName className = ClassName.get(
+        AptUtils.defaultString(base.packageName(), MoreElements.getPackage(e).getQualifiedName().toString()),
+        parts[0],
+        parts.length > 1 ? Arrays.copyOfRange(parts, 1, parts.length - 1) : new String[0]);
+
+    b.className(className);
 
     final AnnotationMirror mirror = this.getMirror(e, base);
 
-    // should be an array.
+    b.annotation(mirror);
+
     for (final AnnotationValue vant : MirrorStuff.getAnnotationListKeyValue(mirror, "value")) {
-
       // the "value" element, which is a Visitable.Visitor annotation instance.
-
       final AnnotationMirror visitor = vant.accept(new AnnotationValueVisitor(), null);
-
-      final VisitorBuilder vb = ReflectedVisitable.Visitor.builder();
-
-      vb.target(this.makeType(e));
-
-      // we have to ead the name ..
-      vb.value(getAnnotationValue(visitor, "value")
-          .map(val -> val.accept(new TypeNameValueVisitor(), null))
-          .map(t -> this.shape(t))
-          .orElse(null));
-
-      vb.bindType(getAnnotationValue(visitor, "bindType")
-          .map(val -> val.accept(new TypeNameValueVisitor(), null))
-          .map(t -> this.shape(t))
-          .orElse(null));
-
-      vb.bindParam(getAnnotationValue(visitor, "bindParam")
-          .flatMap(aval -> Optional.ofNullable(aval.accept(new IntValueVisitor(), null)))
-          .orElse(0));
-
-      vb.className(getAnnotationValue(visitor, "className")
-          .map(aval -> aval.accept(new StringValueVisitor(), null))
-          .orElse(null));
-
-      vb.packageName(getAnnotationValue(visitor, "packageName")
-          .map(aval -> aval.accept(new StringValueVisitor(), null))
-          .orElse(null));
-
-      b.visitor(vb.build());
-
+      visitors.add(this.addVisitor(e, visitor));
     }
+
+    b.visitors(visitors);
 
     this.bases.put(e.getQualifiedName().toString(), b.build());
 
@@ -126,8 +193,10 @@ public class AnnotationScanner {
 
   private void addType(TypeElement e, Visitable.Type type) {
     final ReflectedVisitable.Type.TypeBuilder b = ReflectedVisitable.Type.builder();
+    b.element(e);
+    b.annotation(this.getMirror(e, type));
     b.target(this.makeType(e));
-    b.name(type.value());
+    b.name(AptUtils.defaultString(type.value(), e.getSimpleName().toString()));
     b.paramName(type.paramName());
     b.bases(this.superbases(e));
     this.types.put(e.getQualifiedName().toString(), b.build());
@@ -188,6 +257,15 @@ public class AnnotationScanner {
 
   }
 
+  private static class ListValueVisitor extends SimpleAnnotationValueVisitor8<String[], Void> {
+
+    @Override
+    public String[] visitArray(List<? extends AnnotationValue> vals, Void p) {
+      return vals.stream().map(a -> a.accept(new StringValueVisitor(), p)).toArray(String[]::new);
+    }
+
+  }
+
   private static class IntValueVisitor extends SimpleAnnotationValueVisitor8<Integer, Void> {
 
     @Override
@@ -206,7 +284,7 @@ public class AnnotationScanner {
    * method).
    */
 
-  public ReflectedVisitable.VisitorBinder shape(ClassName iface) {
+  public ReflectedVisitable.VisitorBinder shape(ClassName iface, int bindParam) {
 
     // given the raw name
     final TypeElement ifaceType = this.env.getElementUtils().getTypeElement(iface.reflectionName());
@@ -223,11 +301,37 @@ public class AnnotationScanner {
     b.invocationName(method.getSimpleName().toString());
     b.returnType(returnType);
 
+    final TypeName[] vartypes = new TypeName[method.getParameters().size()];
+
     // calculate parameters.
     for (int i = 0; i < method.getParameters().size(); ++i) {
+
       final VariableElement param = method.getParameters().get(i);
-      final TypeName paramtype = TypeName.get(param.asType());
-      b.param(VisitorParam.of(param.getSimpleName().toString(), paramtype));
+
+      if (i == bindParam) {
+
+        b.param(VisitorParam.of(param.getSimpleName().toString(), null));
+        vartypes[i] = null;
+
+      } else {
+
+        final TypeName paramtype = TypeName.get(param.asType());
+
+        vartypes[i] = paramtype;
+
+        if (paramtype instanceof TypeVariableName) {
+          vartypes[i] = paramtype;
+          b.typeParameter((TypeVariableName) paramtype);
+        }
+
+        b.param(VisitorParam.of(param.getSimpleName().toString(), paramtype));
+
+      }
+
+    }
+
+    if (returnType instanceof TypeVariableName) {
+      b.typeParameter((TypeVariableName) returnType);
     }
 
     return b.build();

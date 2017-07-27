@@ -5,7 +5,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Processor;
@@ -28,7 +27,6 @@ public class AutoProcessor extends AbstractProcessor {
 
   private final Map<String, Model> visitable = new HashMap<>();
   private boolean done;
-  private AnnotationScanner scanner;
   private int count = 0;
 
   private static ModelState state = new ModelState();
@@ -57,49 +55,31 @@ public class AutoProcessor extends AbstractProcessor {
 
     this.count++;
 
-    if (this.scanner == null) {
-      this.scanner = new AnnotationScanner(super.processingEnv);
-    }
+    final AnnotationScanner scanner = new AnnotationScanner(super.processingEnv);
 
     for (final TypeElement te : annotations) {
       for (final Element e : env.getElementsAnnotatedWith(te)) {
         final TypeElement type = (TypeElement) e;
         this.visitable.computeIfAbsent(type.getQualifiedName().toString(), Model::new);
-        this.scanner.add(type);
+        scanner.add(type);
       }
     }
 
     this.processingEnv.getMessager().printMessage(Diagnostic.Kind.OTHER,
         String.format("Round %d, %d elements, over=%s", this.count, env.getRootElements().size(), env.processingOver()));
 
-    for (final Entry<String, Base> base : this.scanner.bases.entrySet()) {
+    for (final Entry<String, Base> base : scanner.bases.entrySet()) {
       this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, String.format("BASE: %s: %s", base.getKey(), base.getValue()));
     }
 
-    for (final Entry<String, Type> base : this.scanner.types.entrySet()) {
+    for (final Entry<String, Type> base : scanner.types.entrySet()) {
       this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, String.format("TYPE: %s: %s", base.getKey(), base.getValue()));
     }
 
-    state.round(this.processingEnv, env, this.scanner);
+    state.round(this.processingEnv, env, scanner);
 
-    if (!this.visitable.isEmpty()) {
-
-      // this.done = true;
-      this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "DONE: " + this.visitable.size());
-
-      final Builder b = new Builder(this.processingEnv);
-
-      this.visitable.forEach((k, v) -> {
-        if (!v.types.isEmpty()) {
-          if (state.add(k)) {
-            this.processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "TYPE: " + k + ": " + v.types.stream().collect(Collectors.joining(", ")));
-            b.add(k, v.types);
-          }
-        }
-      });
-
-    }
     return true;
+
   }
 
 }

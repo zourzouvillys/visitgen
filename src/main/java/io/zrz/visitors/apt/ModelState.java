@@ -1,5 +1,6 @@
 package io.zrz.visitors.apt;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -10,8 +11,12 @@ import javax.annotation.processing.RoundEnvironment;
 import javax.tools.Diagnostic.Kind;
 
 import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
+import com.squareup.javapoet.TypeSpec;
+
+import lombok.SneakyThrows;
 
 /**
  * Keeps track of the model so we can hack around incremental compilation in
@@ -26,24 +31,44 @@ public class ModelState {
   private final Set<String> generated = new HashSet<>();
   private boolean done = false;
 
-  final Map<String, ReflectedVisitable.Base> bases = new HashMap<>();
-  final Map<String, ReflectedVisitable.Type> types = new HashMap<>();
+  private final Map<String, ReflectedVisitable.Base> bases = new HashMap<>();
+  private final Map<String, ReflectedVisitable.Type> types = new HashMap<>();
 
-  public void round(ProcessingEnvironment processingEnv, RoundEnvironment env, AnnotationScanner scanner) {
+  public void round(ProcessingEnvironment env, RoundEnvironment round, AnnotationScanner scanner) {
 
     if (this.done) {
       // it's a new entry into the processor.
       this.done = false;
     }
 
+    for (final Map.Entry<String, ReflectedVisitable.Base> e : scanner.bases.entrySet()) {
+
+      if (this.bases.containsKey(e.getKey())) {
+        env.getMessager().printMessage(Kind.ERROR, String.format("@Visitable.Base %s has already been generated",
+            e.getKey()), e.getValue().getElement());
+        return;
+      }
+
+    }
+
+    for (final Map.Entry<String, ReflectedVisitable.Type> e : scanner.types.entrySet()) {
+
+      if (this.types.containsKey(e.getKey())) {
+        env.getMessager().printMessage(Kind.ERROR, String.format("@Visitable.Type %s has already been generated",
+            e.getKey()), e.getValue().getElement());
+        return;
+      }
+
+    }
+
     this.bases.putAll(scanner.bases);
     this.types.putAll(scanner.types);
 
-    if (this.shouldGenerate(env.processingOver(), env.getRootElements().size(), this.bases.isEmpty() && this.types.isEmpty())) {
-      this.generate(processingEnv);
+    if (this.shouldGenerate(round.processingOver(), round.getRootElements().size(), this.bases.isEmpty() && this.types.isEmpty())) {
+      this.generate(env);
     }
 
-    if (env.processingOver()) {
+    if (round.processingOver()) {
       // we're done.
       this.done = true;
     }
@@ -54,7 +79,10 @@ public class ModelState {
    * calculates the models, and generates the code.
    */
 
+  @SneakyThrows
   private void generate(ProcessingEnvironment env) {
+
+    // normalize the config.
 
     for (final ReflectedVisitable.Base base : this.bases.values()) {
 
@@ -67,16 +95,53 @@ public class ModelState {
         }
       }
 
-      env.getMessager().printMessage(Kind.NOTE, String.format("types for %s: %s", base, impls));
+      if (impls.isEmpty()) {
+        // a warning
+        env.getMessager().printMessage(Kind.WARNING, String.format("Base %s has no implemented types",
+            base.getClassName()),
+            base.getElement(),
+            base.getAnnotation());
+        continue;
+      }
 
-      // fetch all of the types that implement this base.
+      final GenerationContext ctx = new GenerationContext(env, base, impls);
+
+      final BaseGenerator bgen = new BaseGenerator(ctx);
+
+      final TypeSpec typesClass = TypeSpec.classBuilder(base.getClassName())
+          .addType(bgen.generateInvoker(ctx))
+          .addType(bgen.generateTypes(ctx))
+          .build();
+
+      JavaFile.builder(base.getClassName().packageName(), typesClass).build().writeTo(env.getFiler());
 
       // final VisitorShapeGenerator shape = new VisitorShapeGenerator(env);
-      // for (final ReflectedVisitable.Visitor visitor : base.getVisitors()) {
-      // // new VisitorGenerator(base, visitor);
-      // }
+
+      final VisitorWriter writer = new VisitorWriter(ctx);
+
+      // ---
+
+      for (final ReflectedVisitable.Visitor visitor : base.getVisitors()) {
+
+        final Collection<TypeSpec> typespecs = writer.generate(ctx, visitor);
+
+        for (final TypeSpec spec : typespecs) {
+
+          env.getMessager().printMessage(Kind.WARNING, String.format("Generating %s",
+              visitor.getClassName()),
+              base.getElement(),
+              base.getAnnotation());
+
+          JavaFile.builder(visitor.getClassName().packageName(), spec).build().writeTo(env.getFiler());
+
+        }
+
+      }
 
     }
+
+    this.bases.clear();
+    this.types.clear();
 
     // calculate
 
@@ -86,7 +151,7 @@ public class ModelState {
     return (rawtype(a).reflectionName().equals(rawtype(b).reflectionName()));
   }
 
-  private static ClassName rawtype(TypeName a) {
+  public static ClassName rawtype(TypeName a) {
     if (a instanceof ClassName) {
       return (ClassName) a;
     } else if (a instanceof ParameterizedTypeName) {

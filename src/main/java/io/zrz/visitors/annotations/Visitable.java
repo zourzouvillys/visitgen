@@ -32,8 +32,6 @@ public @interface Visitable {
   @Retention(SOURCE)
   public @interface Base {
 
-    Visitor[] value() default {};
-
     /**
      * the package name for the Invoker and enum of types to be placed in. if
      * empty, uses the package that of the type this annotation is on.
@@ -47,7 +45,7 @@ public @interface Visitable {
      * appended.
      */
 
-    String className() default "";
+    String[] className() default {};
 
   }
 
@@ -80,6 +78,23 @@ public @interface Visitable {
      */
 
     String paramName() default "";
+
+  }
+
+  /**
+   * a container for adding multiple visitors
+   */
+
+  @Documented
+  @Target(ElementType.TYPE)
+  @Retention(SOURCE)
+  public @interface Visitors {
+
+    /**
+     * A @FunctionalInterface to use as the prototype visit method.
+     */
+
+    Visitor[] value();
 
   }
 
